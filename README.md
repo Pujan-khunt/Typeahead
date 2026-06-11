@@ -1,3 +1,7 @@
+## Demo
+
+![Typeahead Demo](./data/demo.png)
+
 ## Dataset
 
 This assignment uses the [AOL Search Logs Dataset](https://archive.org/download/academictorrents_cd339bddeae7126bb3b15f3a72c903cb0c401bd1/AOL_search_data_leak_2006.zip). It is a collection of real searches made by people of America between March 1, 2006 to May 31, 2006. During this period of 3 months, there were about **20 million** search queries made by approximately **650,000** anonymized users. Since the data comes from the real world, it is highly practical for a type ahead system.

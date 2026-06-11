@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Typeahead System</title>
+  </head>
+  <link rel="stylesheet" href="./styles.css" />
+  <body>
+    <!-- Show query information -->
+    <div id="query-information" class="visible">50</div>
+
+    <!-- Search bar input and icon -->
+    <div class="input-wrapper">
+      <input
+        id="search-bar-input"
+        placeholder="Type something to see suggestions"
+      />
+      <svg
+        id="search-bar-icon"
+        xmlns="http://www.w3.org/2000/svg"
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <circle cx="11" cy="11" r="7" />
+        <path d="m20 20-3.5-3.5" />
+      </svg>
+    </div>
+
+    <!-- Suggestions list -->
+    <ul id="suggestion-list">
+      <li>What is the capital of India?</li>
+      <li>What is the meaning of LSM trees?</li>
+      <li>Why is Suryakumar Yadav in the playing 11?</li>
+    </ul>
+  </body>
+</html>
