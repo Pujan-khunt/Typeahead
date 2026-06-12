@@ -1,6 +1,6 @@
 ## Demo
 
-![Typeahead Demo](./data/demo.png)
+![Typeahead Demo](./docs/demo.png)
 
 ## Dataset
 
