@@ -51,3 +51,31 @@ Using the first three characters of the query solves the low cardinality problem
 
 ### Conclusion
 There is no database which supports trie natively, so to implement this approach we would have to implement our own database from scratch which should not be the case for developing a MVP. The cons of a trie based approach overweight the pros. We need to think differently, what are we really doing with a trie?
+
+## Key Value Store Based Approach
+> In the trie based approach, we are essentially storing the top 10 sugggestions for every possible prefix of the search query. We do not need a trie for that, we can also use a key value data store where the key is one of the prefixes and the value is the top 10 suggestions to show for that prefix.
+
+## Schema
+
+**Top Suggestions DB Schema (Cache)**
+| Prefix | Top K Suggestions |
+|---------|---------|
+| `wha` | what is 2+2  => 10000<br>what is the color of the sky => 5000<br>what does the fox say => 2000 |
+| `what i` | what is 2+2 => 10000<br>what is the color of the sky => 5000<br>what is the day today => 1000 |
+| `what d` | what does the fox say => 2000<br>what does a fox eat => 1900 |
+
+All possible prefixes that our system will show suggestions, it will already store all the precomputed top k suggestions.
+
+## Sharding
+Sharding is done using **consistent hashing**. Hash the partial query provided by the user to create a pseudo random integer and place it on the ring and then move clockwise until you hit a virtual node, which is the key-value store containing the top k suggestions for that prefix.
+
+Consistent hashing ensures even distribution of prefixes.
+
+## Batching
+
+There are going to be a lot of updates to the Top Suggestions DB because every search query leads to 10 writes, one for each prefix. This means there are going to be 200,000 searches / second * 10 = 2 million writes per second. To reduce the number of writes to the cache (Top Suggestions DB) we need to implement batching.
+
+The key idea of batching is lazily updating the cache, say every time the frequency of a search query becomes a multiple of a batch_size, say 1000, only then we go ahead and update all the prefixes of the search queries in the cache.
+
+**Before batching**: 200,000 (frequency db) + 200,000 * 10 (suggestions db) = **2.2 Million writes / second** <br/>
+**After batching**: 200,000 (frequency db) + 200,000 * 10 / 1000 (suggestions db) = **202,000 writes / second**
