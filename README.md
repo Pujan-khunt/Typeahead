@@ -1,37 +1,83 @@
-## Demo
+# Typeahead System
 
-![Typeahead Demo](./docs/demo.png)
+[![Typeahead Demo](./docs/demo.png)](./docs/demo.png)
 
-## Dataset
+A high-performance typeahead (search autocomplete) system designed to predict and suggest the most popular search queries as a user types. This project is built as an assignment for a High-Level Design (HLD) course, focusing on system scalability, low-latency requirements, and efficient data ingestion.
 
-This assignment uses the [AOL Search Logs Dataset](https://archive.org/download/academictorrents_cd339bddeae7126bb3b15f3a72c903cb0c401bd1/AOL_search_data_leak_2006.zip). It is a collection of real searches made by people of America between March 1, 2006 to May 31, 2006. During this period of 3 months, there were about **20 million** search queries made by approximately **650,000** anonymized users. Since the data comes from the real world, it is highly practical for a type ahead system.
+## Problem Statement
 
-The dataset contains many columns of search data, but for this assignment we only need the _query_ column which is the actual user query that people made on the search engines. The frequency needs to be calculated for each unique query and create a specialized dataset for the use case of making a performant typeahead system.
+Design a typeahead application that:
+- Provides real-time suggestions as users type.
+- Shows the top 10 most relevant suggestions based on prefix matching and historical query frequency.
+- Optimizes for **low latency** and **high availability**, even at the cost of eventual consistency.
+- Handles a massive scale: ~2 million requests per second and ~320 TB of data over 20 years.
 
-Since the queries are typed by people, naturally there will be many typos. For example if many people are trying to search for porn.com then many queries would have typos like pon.com or por.com. I am not normalizing these types of queries since this features is not part of the MVP, but can be included in future requirements.
+## Documentation
 
-Fun Fact: The dataset was released by AOL Research for academic purposes in 2006, but ended up causing a massive scandal. Even thought the user ID for each user were anonymized, journalists and researchers were still able to cross-reference the search queries to specific individuals.
+For a detailed breakdown of the requirements, design decisions, and data modeling, refer to the `docs/` directory:
 
-## Ingestion Pipeline
+- [01 Requirements and Scale](./docs/01-requirements-and-scale.md): Detailed functional/non-functional requirements and scale estimations.
+- [02 High Level Design](./docs/02-high-level-design.md): Exploration of Trie vs. Key-Value store approaches, sharding strategies, and batching.
+- [03 Dataset Information](./docs/03-dataset-information.md): Overview of the AOL search logs dataset used for this project.
+- [04 ETL Pipeline Design](./docs/04-etl-pipeline-design.md): Architecture of the ingestion and loading pipeline.
 
-The [ingestion script](./cmd/ingestion/main.go) is responsible for the ingestion of the AOL Search Logs Dataset and producing a more suitable dataset with only the queries and their frequencies aggregated from the AOL dataset.
+## Tech Stack
 
-### Run Pipeline
+- **Language:** Go (Golang)
+- **Database:** PostgreSQL (using `pgx` driver)
+- **Infrastructure:** Docker
+- **Orchestration:** Makefile
+
+## Local Setup
+
+### Prerequisites
+- Go 1.21+
+- Docker & Docker Compose
+- Make
+
+### 1. Spin up the Database
+Run a PostgreSQL instance in the background using Docker:
+
 ```bash
-go run ./cmd/ingestion/main.go
+docker run -d \
+  --name frequency-db \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=admin123 \
+  -e POSTGRES_DB=frequencydb \
+  -p 5432:5432 \
+  postgres:16
 ```
 
-It takes about 8-10 minutes to download original dataset, process it and create the final [dataset.csv](./data/dataset.csv) file.
+### 2. Configure Environment
+Set the database connection URL as your environment variable:
 
-### Schema
+```bash
+export FREQUENCY_DB_URL="postgresql://postgres:admin123@localhost:5432/frequencydb"
+```
 
-The dataset.csv file contains the following columns:
-1. Query
-2. Frequency
+### 3. Run the ETL Pipeline
+The project uses a `Makefile` to manage the ingestion and loading of the AOL dataset.
 
-### Working Overview
-1. Download the [AOL Search Logs Dataset](https://archive.org/download/academictorrents_cd339bddeae7126bb3b15f3a72c903cb0c401bd1/AOL_search_data_leak_2006.zip) from the internet archive using a HTTP GET request.
-2. Load the entire compressed ZIP file into RAM.
-3. Compress the entire ZIP file and iterate over data files.
-4. Process each data file and build a map of unique queries and their frequencies.
-5. Build the final dataset.csv from the map.
+```bash
+# Run the full pipeline (Ingest -> Load)
+make
+
+# Or run individual steps:
+make ingest    # Downloads and transforms the AOL dataset into data/dataset.csv
+make load      # Performs a high-performance bulk copy of the CSV into Postgres
+```
+
+### 4. Inspect the Data
+You can verify the loaded data using `psql`:
+
+```bash
+docker exec -it frequency-db psql -U postgres -d frequencydb -c "SELECT * FROM search_queries LIMIT 10;"
+```
+
+## Cleanup
+To remove the generated dataset and stop the database:
+
+```bash
+make clean
+docker stop frequency-db && docker rm frequency-db
+```
