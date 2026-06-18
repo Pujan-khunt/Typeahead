@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 
@@ -31,6 +32,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/health", app.healthCheckHandler)
 	mux.HandleFunc("GET /api/v1/suggestions", app.suggestionsHandler)
+	mux.HandleFunc("POST /api/v1/search", app.searchHandler)
 
 	globalHandler := corsMiddleware(mux)
 
@@ -96,4 +98,37 @@ func (app *App) suggestionsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Write(output)
+}
+
+func (app *App) searchHandler(w http.ResponseWriter, r *http.Request) {
+	// Read the search query from user.
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "/search: error reading search query from body: %v\n", err)
+		http.Error(w, "Error reading query", http.StatusInternalServerError)
+		return
+	}
+	defer r.Body.Close()
+
+	ctx := r.Context()
+	query := string(raw)
+
+	// Retrieve the existing frequency of the search query.
+	row := app.DB.QueryRow(ctx, `SELECT frequency FROM search_queries WHERE query = $1`, query)
+	var frequency int64
+	row.Scan(&frequency)
+
+	// Determine type of query: insert/update based on frequency.
+	var updateQuery string
+	if frequency == 0 {
+		updateQuery = "INSERT INTO search_queries (query, frequency) VALUES ($1, $2);"
+	} else {
+		updateQuery = "UPDATE search_queries SET frequency = $2 WHERE query = $1;"
+	}
+
+	// Execute update query.
+	app.DB.Exec(ctx, updateQuery, query, frequency+1)
+
+	// Notify client about resource creation.
+	w.WriteHeader(http.StatusCreated)
 }
