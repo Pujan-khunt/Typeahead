@@ -19,8 +19,10 @@ func main() {
 	mux.HandleFunc("GET /api/v1/health", healthCheckHandler)
 	mux.HandleFunc("GET /api/v1/suggestions", suggestionsHandler)
 
+	globalHandler := corsMiddleware(mux)
+
 	fmt.Printf("Server is running on http://%s\n", SERVER_ADDR)
-	if err := http.ListenAndServe(SERVER_ADDR, mux); err != nil {
+	if err := http.ListenAndServe(SERVER_ADDR, globalHandler); err != nil {
 		fmt.Fprintf(os.Stderr, "error starting HTTP server: %v", err)
 		os.Exit(1)
 	}
@@ -31,8 +33,23 @@ func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("OK"))
 }
 
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers := w.Header()
+		headers.Set("Access-Control-Allow-Origin", "*")
+		headers.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		headers.Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		next.ServeHTTP(w, r)
+	})
+
+}
+
 func suggestionsHandler(w http.ResponseWriter, r *http.Request) {
 	prefix := r.URL.Query().Get("prefix")
+
+	if len(prefix) == 0 {
+		return
+	}
 
 	ctx := r.Context()
 
@@ -44,7 +61,6 @@ func suggestionsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := fmt.Sprintf(`SELECT query FROM search_queries WHERE query LIKE %s ORDER BY frequency DESC LIMIT 10;`, "'"+prefix[1:len(prefix)-1]+"%"+"'")
-	fmt.Println(query)
 
 	rows, err := conn.Query(ctx, query)
 	if err != nil {
@@ -59,7 +75,6 @@ func suggestionsHandler(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var query string
 		rows.Scan(&query)
-		fmt.Println(query)
 		queries = append(queries, query)
 	}
 	if err := rows.Err(); err != nil {
