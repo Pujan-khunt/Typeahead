@@ -4,6 +4,7 @@ const search_bar = document.getElementById("search-bar-input");
 let currentController = null;
 
 search_bar.addEventListener("input", loadSuggestions);
+search_bar.addEventListener("keydown", handleSearchInput)
 search_bar.value = "";
 suggestion_list.replaceChildren();
 
@@ -51,4 +52,23 @@ async function fetchSuggestions(prefix, signal) {
   const response = await fetch(`http://127.0.0.1:8080/api/v1/suggestions?prefix="${prefix}"`, { signal });
   const suggestions = await response.json();
   return suggestions;
+}
+
+async function handleSearchInput(event) {
+  if (event.key !== "Enter") {
+    return;
+  }
+
+  const query = search_bar.value;
+  if (query === "") {
+    return
+  }
+
+  await fetch("http://127.0.0.1:8080/api/v1/search", {
+    method: "POST",
+    body: query
+  });
+
+  search_bar.value = '';
+  suggestion_list.replaceChildren();
 }
