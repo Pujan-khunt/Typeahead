@@ -45,6 +45,11 @@ body {
   border-radius: 6px;
   list-style-type: none;
   border: 1px solid gray;
+  visibility: hidden;
+}
+
+#suggestion-list.visible {
+  visibility: visible;
 }
 
 #suggestion-list li {
