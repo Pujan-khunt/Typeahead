@@ -1,4 +1,4 @@
-.PHONY: all ingest load-postgres clean
+.PHONY: all ingest load-postgres load-redis clean
 
 all: load
 
@@ -10,6 +10,10 @@ data/dataset.csv: cmd/ingest/main.go
 load-postgres: data/dataset.csv
 	@echo "==> Loading data into PostgreSQL..."
 	go run cmd/load-postgres/main.go
+
+load-redis: data/dataset.csv
+	@echo "==> Loading data into Redis..."
+	go run cmd/load-redis/main.go
 
 clean:
 	@echo "==> Cleaning up artifacts..."

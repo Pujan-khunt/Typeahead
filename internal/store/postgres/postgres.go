@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"fmt"
+	"os"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -10,7 +12,12 @@ type PostgresStore struct {
 	pool *pgxpool.Pool
 }
 
-func New(pool *pgxpool.Pool) *PostgresStore {
+func New(connString string) *PostgresStore {
+	pool, err := pgxpool.New(context.Background(), connString)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "postgres: error connecting to database: %v", err)
+		os.Exit(1)
+	}
 	return &PostgresStore{pool: pool}
 }
 

@@ -11,7 +11,7 @@ import (
 
 	"github.com/Pujan-khunt/Typeahead/internal/store"
 	"github.com/Pujan-khunt/Typeahead/internal/store/postgres"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/Pujan-khunt/Typeahead/internal/store/redis"
 )
 
 const (
@@ -23,14 +23,18 @@ type App struct {
 }
 
 func main() {
-	pool, err := pgxpool.New(context.Background(), os.Getenv("FREQUENCY_DB_URL"))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error connecting to database: %v\n", err)
+	storeType := os.Getenv("STORE_TYPE")
+	var app App
+
+	switch storeType {
+	case "redis":
+		app = App{Store: redis.New("localhost:6379")}
+	case "postgres":
+		app = App{Store: postgres.New("postgresql://postgres:admin123@localhost:5432/frequency-db")}
+	default:
+		fmt.Fprintf(os.Stderr, "server: invalid store type: %s. Use 'redis' or 'postgres'", storeType)
 		os.Exit(1)
 	}
-	defer pool.Close()
-
-	app := App{Store: postgres.New(pool)}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/health", app.healthCheckHandler)

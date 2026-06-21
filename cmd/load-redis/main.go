@@ -14,12 +14,14 @@ import (
 )
 
 func main() {
-	client := redis.NewClient(&redis.Options{
+	rdb := redis.NewClient(&redis.Options{
 		Addr:     "localhost:6379",
 		Password: "",
 		Protocol: 2,
 		DB:       0,
 	})
+
+	fmt.Println("Redis client connected to database")
 
 	f, err := os.Open("data/dataset.csv")
 	if err != nil {
@@ -27,6 +29,8 @@ func main() {
 	}
 
 	r := csv.NewReader(f)
+	ctx := context.Background()
+	cnt := 0
 	for {
 		record, err := r.Read()
 
@@ -42,9 +46,16 @@ func main() {
 		query := record[0]
 		freq, _ := strconv.Atoi(record[1])
 
-		err = client.Set(context.Background(), query, freq, 0).Err()
-		if err != nil {
-			panic(err)
+		for i := range query {
+			if err := rdb.ZAdd(ctx, query[:i+1], redis.Z{Score: float64(freq), Member: query}).Err(); err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to insert: %q: %v\n", query[:i+1], err)
+			}
+		}
+
+		cnt++
+		if cnt%1000 == 0 {
+			fmt.Printf("Queries processed: %d%%		\r", cnt)
+			os.Stdout.Sync()
 		}
 	}
 }
