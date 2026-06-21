@@ -7,7 +7,10 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 
+	"github.com/Pujan-khunt/Typeahead/internal/store"
+	"github.com/Pujan-khunt/Typeahead/internal/store/postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -16,7 +19,7 @@ const (
 )
 
 type App struct {
-	DB *pgxpool.Pool
+	Store store.TypeaheadStore
 }
 
 func main() {
@@ -27,7 +30,7 @@ func main() {
 	}
 	defer pool.Close()
 
-	app := App{DB: pool}
+	app := App{Store: postgres.New(pool)}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/health", app.healthCheckHandler)
@@ -59,34 +62,18 @@ func corsMiddleware(next http.Handler) http.Handler {
 }
 
 func (app *App) suggestionsHandler(w http.ResponseWriter, r *http.Request) {
-	prefix := r.URL.Query().Get("prefix")
+	params := r.URL.Query()
+	prefix := params.Get("prefix")
+	limit, _ := strconv.Atoi(params.Get("limit"))
 
-	if len(prefix) == 0 {
+	if len(prefix) == 0 || limit <= 0 {
 		return
 	}
 
-	ctx := r.Context()
-	cleanPrefix := prefix[1:len(prefix)-1] + "%"
-	query := "SELECT query FROM search_queries WHERE query LIKE $1 ORDER BY frequency DESC LIMIT 10;"
-
-	rows, err := app.DB.Query(ctx, query, cleanPrefix)
+	queries, err := app.Store.GetSuggestions(r.Context(), prefix, limit)
 	if err != nil && err != context.Canceled {
-		fmt.Fprintf(os.Stderr, "/suggestions: error executing sql read query for fetching suggestions: %v\n", err)
+		fmt.Fprintf(os.Stderr, "/suggestions: error fetching suggestions: %v\n", err)
 		http.Error(w, "Error fetching suggestions", http.StatusInternalServerError)
-		return
-	}
-	defer rows.Close()
-
-	queries := make([]string, 0, 10)
-
-	for rows.Next() {
-		var query string
-		rows.Scan(&query)
-		queries = append(queries, query)
-	}
-	if err := rows.Err(); err != nil && err != context.Canceled {
-		fmt.Fprintf(os.Stderr, "/suggestions: error reading suggestions from database: %v\n", err)
-		http.Error(w, "Error reading values", http.StatusInternalServerError)
 		return
 	}
 
@@ -102,7 +89,7 @@ func (app *App) suggestionsHandler(w http.ResponseWriter, r *http.Request) {
 
 func (app *App) searchHandler(w http.ResponseWriter, r *http.Request) {
 	// Read the search query from user.
-	raw, err := io.ReadAll(r.Body)
+	query, err := io.ReadAll(r.Body)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "/search: error reading search query from body: %v\n", err)
 		http.Error(w, "Error reading query", http.StatusInternalServerError)
@@ -110,24 +97,8 @@ func (app *App) searchHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	ctx := r.Context()
-	query := string(raw)
-
-	// Retrieve the existing frequency of the search query.
-	row := app.DB.QueryRow(ctx, `SELECT frequency FROM search_queries WHERE query = $1`, query)
-	var frequency int64
-	row.Scan(&frequency)
-
-	// Determine type of query: insert/update based on frequency.
-	var updateQuery string
-	if frequency == 0 {
-		updateQuery = "INSERT INTO search_queries (query, frequency) VALUES ($1, $2);"
-	} else {
-		updateQuery = "UPDATE search_queries SET frequency = $2 WHERE query = $1;"
-	}
-
-	// Execute update query.
-	app.DB.Exec(ctx, updateQuery, query, frequency+1)
+	// Update frequncy for the provided query.
+	app.Store.IncrementFrequency(r.Context(), string(query))
 
 	// Notify client about resource creation.
 	w.WriteHeader(http.StatusCreated)

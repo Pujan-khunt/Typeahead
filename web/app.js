@@ -27,7 +27,7 @@ async function loadSuggestions(input_event) {
 
   try {
     // Fetch new suggestions from backend.
-    const suggestions = await fetchSuggestions(prefix, currentController.signal);
+    const suggestions = await fetchSuggestions(prefix, 10, currentController.signal);
 
     // Remove existing suggestions.
     suggestion_list.replaceChildren();
@@ -48,8 +48,12 @@ async function loadSuggestions(input_event) {
   }
 }
 
-async function fetchSuggestions(prefix, signal) {
-  const response = await fetch(`http://127.0.0.1:8080/api/v1/suggestions?prefix="${prefix}"`, { signal });
+async function fetchSuggestions(prefix, limit, signal) {
+  const url = new URL("http://localhost:8080/api/v1/suggestions")
+  url.searchParams.append("prefix", prefix)
+  url.searchParams.append("limit", limit)
+
+  const response = await fetch(url, { signal });
   const suggestions = await response.json();
   return suggestions;
 }

@@ -1,0 +1,79 @@
+package postgres
+
+import (
+	"context"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+type PostgresStore struct {
+	pool *pgxpool.Pool
+}
+
+func New(pool *pgxpool.Pool) *PostgresStore {
+	return &PostgresStore{pool: pool}
+}
+
+func (p *PostgresStore) GetSuggestions(ctx context.Context, prefix string, limit int) ([]string, error) {
+	// Build SQL query for retrieving suggestions
+	cleanPrefix := prefix + "%"
+	sql := `
+		SELECT query FROM search_queries
+		WHERE query LIKE $1
+		ORDER BY frequency DESC
+		LIMIT $2;
+	`
+
+	// Execute suggestions fetching query
+	rows, err := p.pool.Query(ctx, sql, cleanPrefix, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var query string
+	queries := make([]string, 0, 10)
+
+	// Scan and collect all queries
+	for rows.Next() {
+		rows.Scan(&query)
+		queries = append(queries, query)
+	}
+	if err := rows.Err(); err != nil {
+		return queries, err
+	}
+
+	return queries, nil
+}
+
+func (p *PostgresStore) IncrementFrequency(ctx context.Context, query string) error {
+	sql := `
+		SELECT frequency FROM search_queries
+		WHERE query = $1
+	`
+
+	// Execute SQL query for fetching frequency of query.
+	var freq int64
+	row := p.pool.QueryRow(ctx, sql, query)
+	row.Scan(&freq)
+
+	// Define SQL query based on existence of query in database.
+	if freq == 0 {
+		sql = `
+			INSERT INTO search_queries (query, frequency)
+			VALUES ($1, $2);
+		`
+	} else {
+		sql = `
+			UPDATE search_queries
+			SET frequency = $2
+			WHERE query = $1;
+		`
+	}
+
+	// Execute SQL query for incrementing the frequency of query by 1.
+	if _, err := p.pool.Exec(ctx, sql, query, freq+1); err != nil {
+		return err
+	}
+	return nil
+}
