@@ -11,7 +11,7 @@ import (
 
 func main() {
 	// Open connection to the frequency database.
-	conn, err := pgx.Connect(context.Background(), os.Getenv("FREQUENCY_DB_URL"))
+	conn, err := pgx.Connect(context.Background(), `postgresql://postgres:admin123@localhost:5432/frequency-db`)
 	if err != nil {
 		log.Fatalf("Unable to connect to database: %v", err)
 	}
