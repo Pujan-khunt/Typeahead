@@ -17,6 +17,17 @@ the typeahead system is supposed to be built on.
 4. With every character that the user types, we need to show new suggestions based on the newly typed query - send a new API request on character press.
 5. We will start showing typeahead suggestions only after the user has typed atleast 3 characters in the search bar.
 
+## Implementation Status
+
+| Requirement | Status | Implementation Details |
+| :--- | :--- | :--- |
+| Show suggestions as user types | ✅ Implemented | Frontend sends `GET /api/v1/suggestions` on every `input` event via `AbortController` |
+| Suggestions from past searches | ✅ Implemented | Dataset loaded from AOL Search Logs; `POST /api/v1/search` increments frequency in real-time |
+| Top 10 relevant suggestions | ✅ Implemented | Redis: `ZRANGEARGS` with `Rev: true` returns by descending score; PostgreSQL: `ORDER BY frequency DESC LIMIT` |
+| New suggestions on every character | ✅ Implemented | Frontend cancels previous request and sends new one on each keystroke |
+| Minimum 3 characters | ⚠️ Differs | Frontend starts suggestions from 1 character (no minimum enforced); backend also has no minimum. The design doc specifies 3 characters but the implementation starts immediately. |
+| Suggestion length filter | ✅ Extra | Frontend filters out suggestions ≥ 50 characters; input > 50 characters stops fetching |
+
 # Non Functional Requirements
 > The only non functional requirement is that the typeahead suggestions should be optimized for **low latency**.
 
@@ -40,6 +51,14 @@ Most definitely. Why? because as we discussed previously the entire typeahead sy
 
 ### During a network partition: Consistency or Availability?
 **Availability**. Same reasons as discussed above.
+
+## Implementation Notes on Consistency
+
+| Aspect | Design Goal | Actual Implementation |
+| :--- | :--- | :--- |
+| **Read consistency** | Eventual / stale reads OK | ✅ Reads directly from Redis/PostgreSQL |
+| **Write consistency** | Eventual / data loss OK | ⚠️ Writes are synchronous and immediate (`ZINCRBY` / INSERT+UPDATE) — no batching implemented yet |
+| **Availability** | Prioritize over consistency | ✅ Server gracefully handles `context.Canceled` for aborted requests |
 
 # Scale Estimation
 
@@ -96,3 +115,14 @@ Writes: 200,000 requests / second
 The system is both read and write heavy. It is not theoretically possible to create a system which offers low latency for both a read and write heavy workload. The reason behind it is that there is no database system which is optimized for both, we can only optimize it for any one.
 
 > We can engineer a solution where we absorb a large portion of reads from a cache and optimize the database for writes.
+
+## Current Dataset Scale
+
+For this implementation, we use a subset of the AOL Search Logs (3 months of data from 2006):
+
+| Metric | Value |
+| :--- | :--- |
+| **Total Search Events** | ~20 million |
+| **Unique Users** | ~650,000 |
+| **CSV File Size** | ~256 MB |
+| **Redis Memory** | Per-prefix sorted sets for every query prefix |

@@ -79,3 +79,99 @@ The key idea of batching is lazily updating the cache, say every time the freque
 
 **Before batching**: 200,000 (frequency db) + 200,000 * 10 (suggestions db) = **2.2 Million writes / second** <br/>
 **After batching**: 200,000 (frequency db) + 200,000 * 10 / 1000 (suggestions db) = **202,000 writes / second**
+
+---
+
+## Actual Implementation
+
+The implementation differs from the theoretical design above in a few key ways, trading some scalability features for simplicity in an MVP context.
+
+### Storage: Redis Sorted Sets
+
+Instead of a custom key-value cache, the project uses **Redis Sorted Sets (ZSETs)**, which natively support score-based ranking.
+
+**How it works:**
+
+1. **Per-Prefix Sorted Sets:** During data loading (`cmd/load-redis/main.go`), for each query in the dataset, a `ZADD` is issued for **every prefix** of that query. For example, loading the query "google" with frequency 2841 creates entries in sorted sets keyed by: `g`, `go`, `goo`, `goog`, `googl`, `google`.
+
+2. **Score = Frequency:** Each query's frequency becomes the score in the sorted set, enabling `ZRANGEARGS` with `Rev: true` to retrieve the top-N by frequency.
+
+3. **Query Flow:**
+
+```
+User types "goo"
+       │
+       ▼
+┌──────────────────┐
+│  API Server      │  GET /api/v1/suggestions?prefix=goo&limit=10
+└────────┬─────────┘
+         │
+         ▼
+┌──────────────────────────────────────┐
+│  RedisStore.GetSuggestions()         │
+│  ZRANGEARGS key="goo"               │
+│  Start=0, Stop=9, Rev=true          │
+│  → Returns top 10 by score          │
+└──────────────────────────────────────┘
+```
+
+> **Key difference from theoretical design:** The implementation uses the **exact prefix typed** as the Redis key, not a fixed-length prefix. This means no in-memory filtering is needed at query time, but it uses significantly more Redis memory (one sorted set per possible prefix of every query).
+
+### Storage: PostgreSQL (Alternative)
+
+The PostgreSQL backend uses `LIKE '<prefix>%'` with `ORDER BY frequency DESC LIMIT <limit>` for suggestions. This is simpler and uses less storage, but requires SQL query execution per request.
+
+### Store Interface (`internal/store/store.go`)
+
+Both backends implement a common `TypeaheadStore` interface:
+
+```go
+type TypeaheadStore interface {
+    GetSuggestions(ctx context.Context, prefix string, limit int) ([]string, error)
+    IncrementFrequency(ctx context.Context, query string) error
+}
+```
+
+The server selects the backend via the `STORE_TYPE` environment variable (`redis` or `postgres`).
+
+### Real-Time Frequency Updates
+
+Unlike the theoretical design which uses batch updates, the implementation supports **real-time frequency increments** via `POST /api/v1/search`:
+
+| Backend | Implementation | Atomicity |
+| :--- | :--- | :--- |
+| **Redis** | `ZINCRBY` on every prefix of the query | ✅ Each `ZINCRBY` is atomic |
+| **PostgreSQL** | SELECT frequency → INSERT or UPDATE | ⚠️ Non-atomic (read-then-write) |
+
+This means the system does **not** use the batching optimization described in the design section. Every search immediately updates all prefix sorted sets.
+
+### Serving Architecture
+
+The serving layer consists of three components:
+
+#### 1. HTTP Server (`cmd/server/main.go`)
+
+| Aspect | Details |
+| :--- | :--- |
+| **Address** | `localhost:8080` |
+| **Backend Selection** | `STORE_TYPE` env var (`redis` or `postgres`) |
+| **CORS** | Enabled for all origins (`*`), methods: GET, POST, OPTIONS |
+| **Routes** | `GET /api/v1/health`, `GET /api/v1/suggestions`, `POST /api/v1/search` |
+
+#### 2. Store Layer (`internal/store/`)
+
+| Implementation | `GetSuggestions` | `IncrementFrequency` |
+| :--- | :--- | :--- |
+| **Redis** (`redis/redis.go`) | `ZRANGEARGS` with `Rev: true` on exact prefix key | `ZINCRBY` +1 on every prefix of the query |
+| **PostgreSQL** (`postgres/postgres.go`) | `SELECT ... WHERE query LIKE '<prefix>%' ORDER BY frequency DESC LIMIT` | SELECT + conditional INSERT/UPDATE |
+
+#### 3. Web Frontend (`web/`)
+
+| Feature | Details |
+| :--- | :--- |
+| **Request Cancellation** | Uses `AbortController` to cancel in-flight requests when new input arrives |
+| **Suggestion Rendering** | Prefix shown in plain text, completion shown in **bold** |
+| **Max Display Length** | Suggestions ≥ 50 characters are filtered out |
+| **Max Input Length** | Inputs > 50 characters stop fetching suggestions |
+| **Search Submit** | Enter key sends `POST /api/v1/search` to increment frequency, then clears input |
+| **API Base URL** | Hardcoded to `http://localhost:8080` |
